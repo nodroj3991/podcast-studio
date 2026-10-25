@@ -55,3 +55,24 @@ jobs:
             dist/*.exe
             dist/*.yml
             dist/*.blockmap
+
+  # electron-builder always files a draft release when it isn't itself triggered by a real
+  # tag push (workflow_dispatch has no tag ref). Publishing that draft from the web UI's
+  # "Publish release" button has been failing ("Make sure you have a valid tag") - something
+  # about this repo blocks ad-hoc tag creation for the logged-in user, the same restriction
+  # that rejected a `git push <tag>` from outside earlier. The Actions token isn't subject to
+  # that block (it already created the draft releases fine), so let it finish the job: un-draft
+  # the release here, which makes GitHub materialise the real vX.Y.Z tag at the same time.
+  publish-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the release GitHub Actions just built
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./app/package.json').version")
+          gh release edit "v$VERSION" --draft=false --latest --repo "${{ github.repository }}"
