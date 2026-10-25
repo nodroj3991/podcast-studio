@@ -3,11 +3,16 @@
 # update check reads these releases, so publishing a new tag = an update for the user.
 #
 # To release:  git tag v0.2.1 && git push --tags
+# ...or just use the "Run workflow" button on the Actions tab (workflow_dispatch) -
+# electron-builder will create the matching tag/release itself from app/package.json's version.
 name: build-installers
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: write   # lets electron-builder's --publish step create the Release/tag
 
 jobs:
   build:
