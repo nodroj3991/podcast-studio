@@ -1,0 +1,38 @@
+EDIT DECISION LIST
+Source 00:01:45.929  ->  Edited 00:01:35.090   (removed 00:00:10.839, 10.2%)
+Removed: filler 4.0s (6 cuts), silence 6.8s (5 cuts)
+
+CHAPTERS
+  00:00:00  Introduction
+  00:01:06  What prompted the move?
+
+MUSIC
+  intro Inspiring Soft Background - Soundrider/Dope  [by]
+  outro Inspiring Soft Background - Soundrider/Dope  [by]
+
+CHARTS
+  00:00:40-00:00:45  Papers published per year  (cue: "Yes, I started my PhD in 2012 and my first paper came out two years later.")
+  00:00:57-00:01:02  Citation growth  (cue: "Around 2017, when we published the CI Study, That That paper is still the most cited thing")
+  00:01:29-00:01:34  Research topics  (cue: "I I mean, the main topic is how quickly the Arctic responds to warming, and what that mean")
+  00:01:19-00:01:24  Institutions over time  (cue: "So I moved to Edinburgh in 2019.")
+  not placed (drag into the timeline in Review): Top co-authors
+
+CLIPS (14)
+  #    source in      source out     record in      cam  zoom  speaker
+  1    00:00:00.000   00:00:10.960   00:00:00.000   0    1.00  Jordon
+  2    00:00:11.340   00:00:17.680   00:00:10.960   0    1.00  Jordon
+  3    00:00:17.680   00:00:24.690   00:00:17.300   1    1.00  Maya Lindqvist
+  4    00:00:25.430   00:00:27.350   00:00:24.310   1    1.00  Maya Lindqvist
+  5    00:00:28.060   00:00:42.370   00:00:26.230   1    1.00  Maya Lindqvist
+  6    00:00:42.860   00:00:46.820   00:00:40.540   1    1.00  Maya Lindqvist
+  7    00:00:48.190   00:00:53.580   00:00:44.500   0    1.00  Jordon
+  8    00:00:53.580   00:01:09.940   00:00:49.890   1    1.00  Maya Lindqvist
+  9    00:01:11.010   00:01:15.580   00:01:06.250   0    1.00  Jordon
+  10   00:01:15.580   00:01:17.600   00:01:10.820   1    1.00  Maya Lindqvist
+  11   00:01:18.410   00:01:20.140   00:01:12.840   1    1.00  Maya Lindqvist
+  12   00:01:20.580   00:01:28.200   00:01:14.570   1    1.00  Maya Lindqvist
+  13   00:01:29.390   00:01:36.210   00:01:22.190   1    1.00  Maya Lindqvist
+  14   00:01:37.730   00:01:43.810   00:01:29.010   0    1.00  Jordon
+
+TRANSITIONS (chapter breaks only)
+  00:01:06  fade 0.6s

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podcast Studio</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><span class="dot"></span> Podcast Studio</div>
+    <nav>
+      <a href="#/" data-nav="home">Episodes</a>
+      <a href="#/new" data-nav="new">New episode</a>
+      <a href="#/settings" data-nav="settings">Settings</a>
+      <a href="#/help" data-nav="help">Help</a>
+    </nav>
+    <div id="queue-badge" class="muted small"></div>
+    <div id="update-badge" class="small"></div>
+  </aside>
+  <main id="view"></main>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

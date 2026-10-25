@@ -1,0 +1,15 @@
+QA PASSED - episode_1080p.mp4
+PASS  H.264 video + AAC audio, 1920x1080
+PASS  Duration 102.6s matches the edit list (102.6s)
+PASS  File decodes cleanly end to end
+PASS  Loudness -14.1 LUFS (target -14 +/-1)
+PASS  True peak -3.4 dBTP (no clipping)
+PASS  No unexpected black frames
+PASS  All 14 cut points fall between words
+PASS  31 captions, all within 2 lines x 42 chars and 1-7 s
+PASS  Captions end inside the video
+PASS  Caption timing matches word timings
+PASS  episode.srt written
+PASS  episode.vtt written
+PASS  transcript_edited.docx written
+PASS  transcript_edited.txt written

@@ -1,0 +1,22 @@
+{
+  "profile": {
+    "source": "TEST FIXTURE (not real data)", "source_url": "tests/fixtures/profile_fixture.json", "name": "Maya Lindqvist (fictional)",
+    "works_count": 31, "cited_by_count": 1480, "h_index": 17, "retrieved": "2026-10-25",
+    "papers_per_year": [{"year": 2014, "papers": 1}, {"year": 2015, "papers": 2}, {"year": 2016, "papers": 2}, {"year": 2017, "papers": 4},
+                        {"year": 2018, "papers": 3}, {"year": 2019, "papers": 5}, {"year": 2020, "papers": 4}, {"year": 2021, "papers": 6},
+                        {"year": 2022, "papers": 3}, {"year": 2023, "papers": 1}],
+    "citations_per_year": [{"year": 2015, "citations": 4, "cumulative": 4}, {"year": 2016, "citations": 18, "cumulative": 22},
+                           {"year": 2017, "citations": 60, "cumulative": 82}, {"year": 2018, "citations": 140, "cumulative": 222},
+                           {"year": 2019, "citations": 210, "cumulative": 432}, {"year": 2020, "citations": 260, "cumulative": 692},
+                           {"year": 2021, "citations": 300, "cumulative": 992}, {"year": 2022, "citations": 280, "cumulative": 1272},
+                           {"year": 2023, "citations": 208, "cumulative": 1480}],
+    "top_coauthors": [{"name": "J. Haugen", "papers": 14}, {"name": "P. Rivera", "papers": 9}, {"name": "S. Okafor", "papers": 7},
+                      {"name": "L. Bergström", "papers": 5}, {"name": "T. Nakamura", "papers": 4}],
+    "topics": [{"topic": "Sea ice dynamics", "papers": 12}, {"topic": "Coupled climate modelling", "papers": 9},
+               {"topic": "Arctic amplification", "papers": 6}, {"topic": "Ocean mixing", "papers": 4}],
+    "institutions": [{"institution": "University of Bergen", "from": 2014, "to": 2018, "papers": 12},
+                     {"institution": "University of Edinburgh", "from": 2019, "to": 2023, "papers": 19}],
+    "top_papers": []
+  },
+  "candidates": [], "crosschecks": {}, "missing": []
+}

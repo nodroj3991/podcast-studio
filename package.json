@@ -1,0 +1,93 @@
+{
+  "name": "podcast-studio",
+  "productName": "Podcast Studio",
+  "version": "0.2.0",
+  "description": "Turn raw interview recordings into an edited episode, transcript and captions - on your own computer.",
+  "main": "main.js",
+  "author": "Jordon",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "uk.co.askjordon.podcaststudio",
+    "productName": "Podcast Studio",
+    "artifactName": "PodcastStudio-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "../dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../engine",
+        "to": "engine",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "../runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "../third_party",
+        "to": "third_party"
+      }
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.video",
+      "icon": "build/icon.png",
+      "hardenedRuntime": false,
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "REPLACE_WITH_GITHUB_USER",
+        "repo": "podcast-studio"
+      }
+    ]
+  }
+}
