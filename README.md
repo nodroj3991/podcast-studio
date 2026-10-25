@@ -1,4 +1,3 @@
-# podcast-studio
 # Podcast Studio
 
 Turns raw interview recordings into a finished episode on your own computer: an edited 1080p MP4

@@ -1,0 +1,52 @@
+# Builds the Mac .dmg (Apple Silicon + Intel) and Windows .exe installers in the cloud and
+# attaches them to a GitHub Release.  Free for public repositories.  The app's built-in
+# update check reads these releases, so publishing a new tag = an update for the user.
+#
+# To release:  git tag v0.2.1 && git push --tags
+name: build-installers
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14      # Apple Silicon runner
+            target: mac-arm64
+            cmd: npx electron-builder --mac --arm64 --publish always
+          - os: macos-13      # Intel runner
+            target: mac-x64
+            cmd: npx electron-builder --mac --x64 --publish always
+          - os: windows-latest
+            target: win-x64
+            cmd: npx electron-builder --win --x64 --publish always
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Bundle Python runtime + FFmpeg
+        run: python scripts/bundle_runtime.py --target ${{ matrix.target }}
+      - name: Install Electron
+        working-directory: app
+        run: npm install --no-audit --no-fund
+      - name: Build and publish installer
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # no code signing
+        run: ${{ matrix.cmd }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.target }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
