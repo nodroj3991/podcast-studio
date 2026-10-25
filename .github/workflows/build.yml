@@ -23,8 +23,8 @@ jobs:
           - os: macos-14      # Apple Silicon runner
             target: mac-arm64
             cmd: npx electron-builder --mac --arm64 --publish always
-          - os: macos-13      # Intel runner
-            target: mac-x64
+          - os: macos-14      # macos-13 (Intel) runners are capacity-constrained/retiring; electron-builder
+            target: mac-x64   # cross-packages the x64 build fine from an arm64 host, no Rosetta needed.
             cmd: npx electron-builder --mac --x64 --publish always
           - os: windows-latest
             target: win-x64
