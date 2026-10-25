@@ -11,8 +11,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 from pathlib import Path
+
+# Safety net: a stalled connection (dropped mid-download, odd network/VPN behaviour) must fail
+# and let the stage runner retry it, never hang the engine forever with no feedback. Lots of
+# library code (huggingface_hub, requests/urllib3 call sites that omit their own timeout,
+# urllib) falls back to this socket-module default when none is given explicitly, so one setting
+# here covers model downloads, scholarly-API lookups and music-provider calls alike.
+socket.setdefaulttimeout(45)
 
 
 def main(argv: list[str] | None = None) -> int:
