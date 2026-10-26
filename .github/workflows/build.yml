@@ -25,7 +25,14 @@ jobs:
             cmd: npx electron-builder --mac --arm64 --publish always
           - os: macos-14      # macos-13 (Intel) runners are capacity-constrained/retiring; electron-builder
             target: mac-x64   # cross-packages the x64 build fine from an arm64 host, no Rosetta needed.
-            cmd: npx electron-builder --mac --x64 --publish always
+            # Pinned to the exact Electron version already confirmed working, independent of
+            # whatever the "electron" devDependency range resolves to later. macOS 27 "Golden
+            # Gate" drops Intel Mac support entirely (Tahoe/26 is the last Intel release), so an
+            # Electron bump made for the arm64/Windows builds down the line could quietly raise
+            # the minimum macOS version past what an Intel Mac can ever reach again - stranding
+            # Intel users on an app they can't update. Revisit this pin deliberately, not as a
+            # side effect of bumping Electron for everyone else.
+            cmd: npx electron-builder --mac --x64 --publish always --config.electronVersion=33.4.11
           - os: windows-latest
             target: win-x64
             cmd: npx electron-builder --win --x64 --publish always
