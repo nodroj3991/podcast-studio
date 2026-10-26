@@ -22,7 +22,10 @@ jobs:
         include:
           - os: macos-14      # Apple Silicon runner
             target: mac-arm64
-            cmd: npx electron-builder --mac --arm64 --publish always
+            # ulimit raised because code-signing (now that we actually sign, see below) has to
+            # open every file in the bundle - torch's site-packages alone has thousands of small
+            # files, enough to hit the default per-process open-file limit (EMFILE) mid-sign.
+            cmd: ulimit -n 10240 && npx electron-builder --mac --arm64 --publish always
           - os: macos-14      # macos-13 (Intel) runners are capacity-constrained/retiring; electron-builder
             target: mac-x64   # cross-packages the x64 build fine from an arm64 host, no Rosetta needed.
             # Pinned to the exact Electron version already confirmed working, independent of
@@ -32,7 +35,7 @@ jobs:
             # the minimum macOS version past what an Intel Mac can ever reach again - stranding
             # Intel users on an app they can't update. Revisit this pin deliberately, not as a
             # side effect of bumping Electron for everyone else.
-            cmd: npx electron-builder --mac --x64 --publish always --config.electronVersion=33.4.11
+            cmd: ulimit -n 10240 && npx electron-builder --mac --x64 --publish always --config.electronVersion=33.4.11
           - os: windows-latest
             target: win-x64
             cmd: npx electron-builder --win --x64 --publish always
@@ -52,7 +55,7 @@ jobs:
         working-directory: app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # no code signing
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # we set identity explicitly (ad-hoc); skip keychain search
         run: ${{ matrix.cmd }}
       - uses: actions/upload-artifact@v4
         with:

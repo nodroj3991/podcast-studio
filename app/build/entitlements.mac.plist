@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Electron's own renderer/JS engine needs these regardless of signing method. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+	<!-- Required specifically because we ad-hoc sign (no paid Apple Developer certificate):
+	     the bundled Python runtime, FFmpeg and the many compiled extensions under
+	     runtime/python/.../site-packages (torch, ctranslate2, etc.) are not signed by Apple or
+	     by us with a real identity, and the hardened runtime kills the process on launch
+	     ("different Team IDs") if library validation isn't disabled. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.cs.disable-executable-page-protection</key>
+	<true/>
+</dict>
+</plist>

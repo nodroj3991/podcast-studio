@@ -72,6 +72,18 @@ def bundle_python(target: str) -> Path:
         for p in (dst / "python").rglob(name):
             if p.is_dir() and "site-packages" not in str(p):
                 shutil.rmtree(p, ignore_errors=True)
+    # torch alone ships ~10,000 tiny C++ header files under include/ (one per operator) plus a
+    # share/cmake/ tree - both exist only so someone could compile a *C++* extension against
+    # libtorch, never touched by ordinary Python use. Harmless to keep except that macOS
+    # code-signing has to open every single file in the app bundle, and that file count alone
+    # was enough to blow through the signing process's open-file-descriptor limit (EMFILE) on
+    # a from-scratch CI runner. Cutting them keeps signing fast and shrinks the installer too.
+    torch_dir = next((dst / "python").glob("**/site-packages/torch"), None)
+    if torch_dir:
+        for sub in ("include", "share", "test"):
+            p = torch_dir / sub
+            if p.exists():
+                shutil.rmtree(p, ignore_errors=True)
     print("python runtime ready:", py)
     return py
 
