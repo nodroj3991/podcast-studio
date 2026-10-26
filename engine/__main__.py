@@ -11,9 +11,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 from pathlib import Path
+
+# torch and faster-whisper's CTranslate2 backend each bundle their own copy of Intel's OpenMP
+# runtime (libiomp5.dylib on mac, libiomp5md.dll on Windows). Loading both in one process makes
+# OpenMP abort the whole process with "Error #15: ... already initialized" the moment the second
+# one is touched - this killed the engine outright as soon as a real transcription job reached
+# the model-loading step. Must be set before anything imports torch/ctranslate2 anywhere, so it
+# sits at the very top of the entry point rather than near whichever module happens to import
+# them first.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 # Safety net: a stalled connection (dropped mid-download, odd network/VPN behaviour) must fail
 # and let the stage runner retry it, never hang the engine forever with no feedback. Lots of

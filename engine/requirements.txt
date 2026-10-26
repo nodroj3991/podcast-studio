@@ -1,5 +1,9 @@
 # Core engine (CPU everywhere; Apple Silicon uses CPU int8 which is fast; NVIDIA via Settings > "Enable NVIDIA acceleration")
-numpy>=1.26
+# <2 pinned deliberately: torch's bundled wheel is built against NumPy 1.x's C ABI, and letting
+# pip pick up NumPy 2.x produces "Failed to initialize NumPy: _ARRAY_API not found" at import
+# time - a real ABI mismatch, not a cosmetic warning. Revisit only once torch's shipped wheel is
+# confirmed built against NumPy 2.
+numpy>=1.26,<2
 faster-whisper>=1.1.0
 huggingface_hub>=0.25
 Pillow>=10.0
