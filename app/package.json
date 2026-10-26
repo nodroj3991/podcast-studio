@@ -64,8 +64,7 @@
       ],
       "category": "public.app-category.video",
       "icon": "build/icon.png",
-      "hardenedRuntime": false,
-      "identity": null
+      "hardenedRuntime": false
     },
     "win": {
       "target": [
