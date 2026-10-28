@@ -25,7 +25,12 @@ jobs:
             # ulimit raised because code-signing (now that we actually sign, see below) has to
             # open every file in the bundle - torch's site-packages alone has thousands of small
             # files, enough to hit the default per-process open-file limit (EMFILE) mid-sign.
-            cmd: ulimit -n 10240 && npx electron-builder --mac --arm64 --publish always
+            # --publish never: this job only builds the file locally. Three matrix jobs each
+            # trying to publish at the same time is exactly what was creating two different
+            # GitHub Releases under the same tag (assets split between them, neither complete).
+            # Only the single publish-release job below (which runs after all three finish)
+            # touches the Releases API now, so there is nothing left to race.
+            cmd: ulimit -n 10240 && npx electron-builder --mac --arm64 --publish never
           - os: macos-14      # macos-13 (Intel) runners are capacity-constrained/retiring; electron-builder
             target: mac-x64   # cross-packages the x64 build fine from an arm64 host, no Rosetta needed.
             # Pinned to the exact Electron version already confirmed working, independent of
@@ -35,10 +40,10 @@ jobs:
             # the minimum macOS version past what an Intel Mac can ever reach again - stranding
             # Intel users on an app they can't update. Revisit this pin deliberately, not as a
             # side effect of bumping Electron for everyone else.
-            cmd: ulimit -n 10240 && npx electron-builder --mac --x64 --publish always --config.electronVersion=33.4.11
+            cmd: ulimit -n 10240 && npx electron-builder --mac --x64 --publish never --config.electronVersion=33.4.11
           - os: windows-latest
             target: win-x64
-            cmd: npx electron-builder --win --x64 --publish always
+            cmd: npx electron-builder --win --x64 --publish never
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -66,13 +71,13 @@ jobs:
             dist/*.yml
             dist/*.blockmap
 
-  # electron-builder always files a draft release when it isn't itself triggered by a real
-  # tag push (workflow_dispatch has no tag ref). Publishing that draft from the web UI's
-  # "Publish release" button has been failing ("Make sure you have a valid tag") - something
-  # about this repo blocks ad-hoc tag creation for the logged-in user, the same restriction
-  # that rejected a `git push <tag>` from outside earlier. The Actions token isn't subject to
-  # that block (it already created the draft releases fine), so let it finish the job: un-draft
-  # the release here, which makes GitHub materialise the real vX.Y.Z tag at the same time.
+  # The three builds above now only build their installer file (--publish never) and hand it
+  # off as a plain workflow artifact. This job runs once, after ALL three have finished, and is
+  # the ONLY thing that ever talks to the GitHub Releases API - so there's nothing left for it
+  # to race against. It also works whichever way the run was started: a real `git push --tags`
+  # (where the release doesn't exist yet) or a manual "Run workflow" click, and it won't choke
+  # if someone's already hand-created a draft/published release for this version first - it just
+  # uploads the files to whichever one exists, or creates a fresh one if none does.
   publish-release:
     needs: build
     runs-on: ubuntu-latest
@@ -80,9 +85,28 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Publish the release GitHub Actions just built
+      - name: Collect the installers all three builds produced
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: dist
+          merge-multiple: true
+      - name: Publish one release with every file attached
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
           VERSION=$(node -p "require('./app/package.json').version")
-          gh release edit "v$VERSION" --draft=false --latest --repo "${{ github.repository }}"
+          TAG="v$VERSION"
+          REPO="${{ github.repository }}"
+          echo "Files collected from the three builds:"
+          ls -la dist
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists (e.g. hand-created in the web UI) - attaching files to it."
+            gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+            gh release edit "$TAG" --draft=false --latest --repo "$REPO"
+          else
+            echo "No release for $TAG yet - creating it fresh, anchored to this exact commit."
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes \
+              --target "${{ github.sha }}" --repo "$REPO"
+          fi
