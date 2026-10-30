@@ -1,7 +1,7 @@
 {
   "name": "podcast-studio",
   "productName": "Podcast Studio",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Turn raw interview recordings into an edited episode, transcript and captions - on your own computer.",
   "main": "main.js",
   "author": "Jordon",

@@ -8,7 +8,10 @@
 5. ``final.wav``     speech + music -> two-pass loudnorm to -14 LUFS -> limiter -1 dBTP
 
 The filter graph for step 3 can contain hundreds of segments, so it is written to a script
-file and passed with ``-filter_complex_script`` (no command-line length limit).
+file and passed with ``-/filter_complex`` (no command-line length limit).
+FFmpeg 9 hard-removed the older ``-filter_complex_script`` flag (it exits with "Unrecognized
+option" instead of a warning); ``-/filter_complex <path>`` is the generic "read this option's
+value from a file" syntax FFmpeg 7.1+ uses instead, same file format, just a different flag.
 """
 from __future__ import annotations
 
@@ -80,7 +83,7 @@ def speech_track(voice_wav: Path, items: list[dict[str, Any]], out: Path, work: 
         lines.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[out]")
     script = work / "speech_filter.txt"
     script.write_text(";\n".join(lines), encoding="utf-8")
-    _run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(voice_wav), "-filter_complex_script", str(script),
+    _run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(voice_wav), "-/filter_complex", str(script),
           "-map", "[out]", "-ar", str(SR), "-ac", "1", "-c:a", "pcm_s16le", str(out)], log)
     return out
 
@@ -131,7 +134,7 @@ def music_track(music: dict[str, Any], sections: dict[str, Any], total: float, s
         lines.append(f"{final_layers[0]}atrim=duration={total:.3f}[out]")
     script = work / "music_filter.txt"
     script.write_text(";\n".join(lines), encoding="utf-8")
-    cmd += ["-filter_complex_script", str(script), "-map", "[out]", "-ar", str(SR), "-ac", "1", "-c:a", "pcm_s16le", str(out)]
+    cmd += ["-/filter_complex", str(script), "-map", "[out]", "-ar", str(SR), "-ac", "1", "-c:a", "pcm_s16le", str(out)]
     _run(cmd, log)
     return out
 
