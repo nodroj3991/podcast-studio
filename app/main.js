@@ -28,12 +28,27 @@ function enginePaths() {
            models: path.join(app.getPath("userData"), "models") };
 }
 
+function episodesDir() {
+  // Settings > Episodes folder > Change... writes {"episodes_dir": "<path>"} into the same
+  // settings.json the Python engine itself reads from (engine/server.py falls back to this
+  // exact key) - but this file always passed its own hardcoded Documents path as --episodes,
+  // which wins over anything in settings.json regardless of what the user picked, silently
+  // making that whole Settings control a no-op. Read the same file here first so a saved
+  // choice is actually honoured; only fall back to the Documents default if nothing's been set.
+  try {
+    const settingsFile = path.join(app.getPath("userData"), "settings.json");
+    const saved = JSON.parse(fs.readFileSync(settingsFile, "utf-8")).episodes_dir;
+    if (saved) return saved;
+  } catch { /* no settings.json yet, or no episodes_dir key - use the default below */ }
+  return path.join(app.getPath("documents"), "Podcast Episodes");
+}
+
 function startEngine() {
   const p = enginePaths();
   const env = { ...process.env, PYTHONUNBUFFERED: "1", PODCAST_STUDIO_DATA: app.getPath("userData"),
                 PYTHONIOENCODING: "utf-8", HF_HOME: path.join(app.getPath("userData"), "models", "hf") };
   if (p.ffmpegDir) env.PATH = p.ffmpegDir + path.delimiter + env.PATH;   // bundled ffmpeg/ffprobe first
-  const episodes = path.join(app.getPath("documents"), "Podcast Episodes");
+  const episodes = episodesDir();
   engine = spawn(p.python, ["-m", "engine", "serve", "--port", String(PORT), "--episodes", episodes], { cwd: p.cwd, env });
   const log = fs.createWriteStream(path.join(app.getPath("userData"), "engine-stdout.log"), { flags: "a" });
   engine.stdout.pipe(log); engine.stderr.pipe(log);
