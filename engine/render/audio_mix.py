@@ -21,6 +21,7 @@ from typing import Any
 
 from ..edit.audio import voice_chain, measure_loudness, loudnorm_pass2, final_limiter
 from ..ingest.media import mix_down
+from ..ingest import media as M
 
 SR = 48000
 
@@ -35,14 +36,20 @@ def _run(cmd: list[str], log=None) -> None:
 
 def full_mix(sources: list[dict[str, Any]], out: Path, log=None) -> Path:
     tracks = [s for s in sources if s.get("role", "auto") in ("speaker", "auto")] or sources
-    if out.exists():
+    if out.exists() and M.is_valid(out, min_duration=1.0):
         return out
     mix_down([Path(s["path"]) for s in tracks], [float(s.get("offset", 0.0)) for s in tracks], out, sr=SR)
     return out
 
 
 def voice(mix: Path, out: Path, settings: dict[str, Any], log=None) -> Path:
-    if out.exists():
+    expected = None
+    if mix.exists():
+        try:
+            expected = M.probe(mix).duration
+        except Exception:
+            expected = None
+    if out.exists() and M.is_valid(out, min_duration=1.0, expected_duration=expected):
         return out
     chain = voice_chain(noise_db=float(settings.get("noise_reduction_db", 12)), compress=settings.get("compress", True),
                         denoise=settings.get("denoise", True))

@@ -36,6 +36,31 @@ class MediaInfo:
     codec_a: str = ""
 
 
+def is_valid(path: Path, min_duration: float = 0.0, expected_duration: float | None = None, tol: float = 0.75) -> bool:
+    """True only if ``path`` is a readable, complete media file of about the right length.
+
+    Several render stages cache their output by just checking the file exists (fast resume
+    after a crash/quit mid-pipeline). That is unsafe on its own: a file can exist and be
+    non-empty while still being a partial write left behind by an interrupted stage - most
+    commonly here because macOS's iCloud Drive sync (if the project lives under Documents,
+    which it does by default) grabbed the file mid-write or mid-read and the OS call timed
+    out (``Operation timed out`` / errno 60). ffmpeg's ``-c copy`` steps don't re-decode
+    frame-by-frame, so a truncated input is "successfully" copied as a truncated output with
+    no error at all - the corruption just silently gets shorter at each step until something
+    finally notices (previously: only the QA stage, long after the fact). Call this before
+    trusting any existing cached file.
+    """
+    try:
+        info = probe(path)
+    except Exception:
+        return False
+    if info.duration < min_duration:
+        return False
+    if expected_duration is not None and abs(info.duration - expected_duration) > max(tol, expected_duration * 0.02):
+        return False
+    return True
+
+
 def probe(path: Path) -> MediaInfo:
     cmd = ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
     try:

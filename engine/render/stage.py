@@ -14,6 +14,7 @@ from ..edit.schema import load_transcript
 from ..edit.cuts import kept_ranges, words_in_edit
 from ..edit.audio import ebur128_stats
 from ..ingest.exports import paragraphs, write_txt, write_docx
+from ..ingest import media as M
 from . import timeline as TL
 from . import video as V
 from . import audio_mix as A
@@ -49,7 +50,14 @@ def _render(project: Project, ctx: Context, profile: str) -> Path:
         h = hashlib.md5(key.encode()).hexdigest()[:10]
         out = work / f"{k:05d}_{it['kind']}_{h}.mp4"
         parts.append(out)
-        if out.exists() and out.stat().st_size > 0:
+        # A clip that exists and is non-empty is NOT necessarily a finished clip: a previous
+        # attempt that got interrupted (crash, forced quit, or - most commonly - macOS's
+        # iCloud Drive sync stalling a read/write under the project's Documents folder with
+        # "Operation timed out") can leave a truncated file behind with real bytes in it.
+        # Trusting that blindly on resume is exactly what let one bad clip collapse a
+        # ~75-minute episode down to a few seconds without any error being raised. Check its
+        # actual duration against what this clip is supposed to be before reusing it.
+        if out.exists() and out.stat().st_size > 0 and M.is_valid(out, expected_duration=float(it["dur"])):
             continue
         ctx.progress(0.05 + 0.75 * k / total, f"Clip {k + 1} of {total}")
         tmp = out.with_suffix(".part.mp4")
@@ -63,6 +71,13 @@ def _render(project: Project, ctx: Context, profile: str) -> Path:
     ctx.progress(0.82, "Joining clips", force=True)
     video_only = work / "video_only.mp4"
     V.concat(parts, video_only, ctx.log)
+    expected_video_dur = sum(float(it["dur"]) for it in items)
+    if not M.is_valid(video_only, expected_duration=expected_video_dur):
+        raise UserFacingError("Joining the rendered clips produced a short/corrupt video file.",
+                               "This usually means a file under the project folder got interrupted mid-read or "
+                               "mid-write (iCloud Drive syncing the Documents folder while rendering is the most "
+                               "common cause). Re-run this step; if it keeps happening, try moving the project "
+                               "folder out of Documents/iCloud Drive first.")
 
     # ---- audio (shared between preview and final: same timeline)
     ctx.progress(0.85, "Mixing audio", force=True)
@@ -79,6 +94,12 @@ def _render(project: Project, ctx: Context, profile: str) -> Path:
     chapters_meta = _chapter_metadata(tl, work / "chapters.ffmeta")
     out = project.renders / ("preview.mp4" if profile == "preview" else "episode_1080p.mp4")
     V.mux(video_only, work / "final.wav", out, chapters_meta, ctx.log)
+    if not M.is_valid(out, expected_duration=tl["duration"]):
+        raise UserFacingError(f"The rendered {out.name} came out the wrong length (a short/corrupt file).",
+                               "This usually means a file under the project folder got interrupted mid-read or "
+                               "mid-write (iCloud Drive syncing the Documents folder while rendering is the most "
+                               "common cause). Re-run this step; if it keeps happening, try moving the project "
+                               "folder out of Documents/iCloud Drive first.")
     write_json(done_marker, {"output": str(out), "duration": tl["duration"]})
     meta["duration_final"] = tl["duration"]
     project.save(meta)
