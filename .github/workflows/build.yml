@@ -20,8 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14      # Apple Silicon runner
-            target: mac-arm64
+          - os: macos-15      # Apple Silicon runner. GitHub retired macos-14 images on 2026-11-02
+            target: mac-arm64 # ("configuration 'macos-14-arm64-us-default' is not supported") - macos-15
+                               # is the current standard arm64 label; keep an eye out for it being
+                               # retired in turn eventually, same as macos-13 and macos-14 before it.
             # ulimit raised because code-signing (now that we actually sign, see below) has to
             # open every file in the bundle - torch's site-packages alone has thousands of small
             # files, enough to hit the default per-process open-file limit (EMFILE) mid-sign.
@@ -31,8 +33,8 @@ jobs:
             # Only the single publish-release job below (which runs after all three finish)
             # touches the Releases API now, so there is nothing left to race.
             cmd: ulimit -n 10240 && npx electron-builder --mac --arm64 --publish never
-          - os: macos-14      # macos-13 (Intel) runners are capacity-constrained/retiring; electron-builder
-            target: mac-x64   # cross-packages the x64 build fine from an arm64 host, no Rosetta needed.
+          - os: macos-15      # Same retirement as above applies here too. electron-builder cross-packages
+            target: mac-x64   # the x64 build fine from an arm64 host (macos-15), no Rosetta needed.
             # Pinned to the exact Electron version already confirmed working, independent of
             # whatever the "electron" devDependency range resolves to later. macOS 27 "Golden
             # Gate" drops Intel Mac support entirely (Tahoe/26 is the last Intel release), so an
