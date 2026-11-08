@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -42,11 +43,25 @@ FFMPEG_URLS = {
 }
 
 
-def fetch(url: str) -> bytes:
-    print("downloading", url, flush=True)
-    req = urllib.request.Request(url, headers={"User-Agent": "podcast-studio-build"})
-    with urllib.request.urlopen(req, timeout=600) as r:
-        return r.read()
+def fetch(url: str, attempts: int = 5) -> bytes:
+    # BtbN's FFmpeg "latest" release (one of FFMPEG_URLS below) isn't a normal static release:
+    # their CI deletes it and republishes a fresh one under the same tag on every new build, so
+    # any asset under that tag can 404 for a minute or two while that swap is in progress. A CI
+    # build hitting that exact window shouldn't have to be re-run by hand - retry with backoff.
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            print("downloading", url, flush=True)
+            req = urllib.request.Request(url, headers={"User-Agent": "podcast-studio-build"})
+            with urllib.request.urlopen(req, timeout=600) as r:
+                return r.read()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if i < attempts - 1:
+                wait = 15 * (i + 1)
+                print(f"  fetch failed ({e!r}), retrying in {wait}s ({i + 1}/{attempts})", flush=True)
+                time.sleep(wait)
+    raise RuntimeError(f"giving up on {url} after {attempts} attempts") from last
 
 
 def bundle_python(target: str) -> Path:
