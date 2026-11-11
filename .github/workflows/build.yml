@@ -15,6 +15,18 @@ permissions:
   contents: write   # lets electron-builder's --publish step create the Release/tag
 
 jobs:
+  # IMPORTANT: app/package.json's build.mac.target must NOT list an explicit "arch" array (e.g.
+  # arch: ["arm64", "x64"]) on the dmg target. When it does, electron-builder ignores the
+  # --arm64/--x64 CLI flags below and builds BOTH architectures' .dmg in every job, regardless
+  # of which flag was passed - confirmed from CI logs: the "mac-arm64" job built an x64 dmg too,
+  # and the "mac-x64" job built an arm64 dmg too. Every matrix job's uploaded artifact then
+  # contains a same-named .dmg for the OTHER arch as well, and publish-release downloads all of
+  # them concurrently with merge-multiple:true into one shared folder - two artifacts extracting
+  # same-named files at the same time race and interleave bytes from both into one corrupted
+  # file (right final size, intact outer structure, garbled compressed data in the middle - this
+  # is exactly what silently broke the v0.3.1 mac-arm64 release). Leave the dmg target's arch
+  # unset so the --arm64/--x64 flags are the only thing deciding which single arch each job
+  # builds.
   build:
     strategy:
       fail-fast: false
