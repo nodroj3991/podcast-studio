@@ -104,8 +104,23 @@ def transcribe(audio: Path, model_name: str, device: str, compute_type: str, lan
                vocabulary: list[str], progress: Progress, duration: float, models_dir: Path | None = None) -> dict[str, Any]:
     from faster_whisper import WhisperModel
     progress(0.0, f"Loading {model_name} model")
+    # Even when the model is already fully downloaded from a previous run, WhisperModel (via
+    # huggingface_hub) still makes a live network call first to check for newer files, unless
+    # told not to. That call has its own short timeout for a slow/unresponsive *server* - but
+    # a stalled DNS lookup (a flaky Wi-Fi reconnect, a VPN hiccup) isn't bounded by that timeout,
+    # or by the socket.setdefaulttimeout() set in __main__.py: DNS resolution runs before any
+    # socket-level timeout applies. That silently hung this step for over an hour on a model
+    # that was sitting on disk the whole time, needing no network access at all. If we already
+    # have it, say so explicitly and skip the network entirely - nothing to hang on then.
+    local_only = False
+    if models_dir:
+        try:
+            from ..models import status as _model_status
+            local_only = bool(_model_status(Path(models_dir), model_name).get("complete"))
+        except Exception:
+            local_only = False
     model = WhisperModel(model_name, device=device if device == "cuda" else "cpu", compute_type=compute_type,
-                         download_root=str(models_dir) if models_dir else None)
+                         download_root=str(models_dir) if models_dir else None, local_files_only=local_only)
     prompt = vocabulary_prompt(vocabulary)
     # decode ourselves (16 kHz mono float32) - avoids faster-whisper's PyAV dependency
     pcm = subprocess.check_output(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(audio), "-ac", "1", "-ar", "16000",
