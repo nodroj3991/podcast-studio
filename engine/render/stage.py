@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 import zipfile
@@ -19,6 +20,8 @@ from . import timeline as TL
 from . import video as V
 from . import audio_mix as A
 from . import captions as CAP
+
+L = logging.getLogger("engine")
 
 
 def _timeline(project: Project, settings: dict[str, Any]) -> dict[str, Any]:
@@ -298,22 +301,47 @@ def package(project: Project, ctx: Context) -> None:
         (project.music_dir / "attribution.txt", "music_attribution.txt"),
         (project.edit_dir / "edl.txt", "edit_decision_list.txt"),
     ]
+    def _copy(src: Path, dst: Path) -> None:
+        # copy2 preserves the source's mtime, so an existing destination with the same size and
+        # mtime IS a finished earlier copy - don't redo it. This matters when the project lives in
+        # an iCloud-synced folder: with the disk nearly full, macOS quietly evicts big files like
+        # the 2-3 GB renders to the cloud, and every re-read of them then has to pull the whole
+        # file back down first. A retried package stage was re-copying files it had already
+        # copied successfully, stalling for hours on exactly that, and failing with errno 60.
+        try:
+            if dst.exists() and dst.stat().st_size == src.stat().st_size and int(dst.stat().st_mtime) == int(src.stat().st_mtime):
+                return
+            shutil.copy2(src, dst)
+        except TimeoutError as e:
+            raise UserFacingError(
+                f"Copying {src.name} to the Output folder timed out. This happens when the project folder is in iCloud "
+                f"Drive (Documents or Desktop with 'Desktop & Documents Folders' syncing on) and the Mac is low on disk "
+                f"space, so macOS has moved the file to the cloud and has to download it again first.",
+                "Free up some disk space, or move the Episodes folder out of iCloud (Settings > Episodes folder), then "
+                "run Package again - files already in the Output folder are kept, not redone.") from e
+
     n = 0
     for src, name in copies:
         if name and src.exists() and src.is_file():
-            shutil.copy2(src, out / name)
+            _copy(src, out / name)
             n += 1
     charts_out = out / "charts"
     charts_out.mkdir(exist_ok=True)
-    for p in project.charts_dir.glob("*.png"):
-        shutil.copy2(p, charts_out / p.name)
-    for p in project.charts_dir.glob("*.mp4"):
-        shutil.copy2(p, charts_out / p.name)
+    for p in list(project.charts_dir.glob("*.png")) + list(project.charts_dir.glob("*.mp4")):
+        _copy(p, charts_out / p.name)
     ctx.progress(0.6, "Zipping")
+    # The zip is a convenience for sending the written deliverables around. It deliberately leaves
+    # the videos out: they're already in Output next to it, storing them again uncompressed would
+    # double the ~5 GB they take up (on a disk that may be nearly full - see above), and re-reading
+    # evicted multi-GB files is what timed out the first ever package attempt. Nor is a failed zip
+    # worth failing the whole stage over, now that every real deliverable is already in Output.
     zpath = project.root / f"{slug}_outputs.zip"
-    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_STORED) as z:     # video is already compressed
-        for p in out.rglob("*"):
-            if p.is_file():
-                z.write(p, p.relative_to(out))
+    try:
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in out.rglob("*"):
+                if p.is_file() and p.suffix.lower() not in (".mp4", ".mov"):
+                    z.write(p, p.relative_to(out))
+    except Exception as e:  # noqa: BLE001
+        L.warning("could not write %s (%s) - outputs are still complete in %s", zpath.name, e, out)
     meta.update(output_folder=str(out), output_zip=str(zpath), outputs=sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()))
     project.save(meta)

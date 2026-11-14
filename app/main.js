@@ -43,6 +43,43 @@ function episodesDir() {
   return path.join(app.getPath("documents"), "Podcast Episodes");
 }
 
+function inICloud(dir) {
+  // macOS only. True when the folder is synced by iCloud Drive: either it's inside iCloud Drive
+  // itself, or it's under Documents/Desktop while the "Desktop & Documents Folders" option is on
+  // (macOS then exposes those two folders inside the iCloud container as well). A synced folder
+  // is a bad place for multi-GB renders: with "Optimise Mac Storage" on and the disk filling up,
+  // macOS evicts the big files to the cloud, and every later read of them stalls for however
+  // long the re-download takes - that's what produced hours-long "Operation timed out" failures
+  // on a finished episode. Warn once at startup so the user can pick a better folder.
+  if (process.platform !== "darwin") return false;
+  const home = app.getPath("home");
+  const cloud = path.join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
+  const r = path.resolve(dir);
+  if (r.startsWith(path.join(home, "Library", "Mobile Documents"))) return true;
+  for (const name of ["Documents", "Desktop"]) {
+    if (r.startsWith(path.join(home, name) + path.sep) && fs.existsSync(path.join(cloud, name))) return true;
+  }
+  return false;
+}
+
+function warnIfEpisodesInICloud() {
+  const dir = episodesDir();
+  if (!inICloud(dir)) return;
+  const flagFile = path.join(app.getPath("userData"), "icloud-warning-shown.txt");
+  try { if (fs.readFileSync(flagFile, "utf-8").trim() === dir) return; } catch { /* not shown for this folder yet */ }
+  try { fs.writeFileSync(flagFile, dir); } catch { /* best effort - worst case the warning shows again next launch */ }
+  dialog.showMessageBox({
+    type: "warning", buttons: ["OK"], title: "Episodes folder is in iCloud Drive",
+    message: "Your Episodes folder is synced by iCloud Drive.",
+    detail: `${dir}\n\nFinished episodes are several GB each. When the disk gets full, macOS moves files in iCloud ` +
+            `folders to the cloud and has to download them again before they can be used - that can make the ` +
+            `last steps of an episode stall for hours or fail with "Operation timed out".\n\n` +
+            `To avoid it, pick a folder that isn't in Documents, Desktop or iCloud Drive (for example a new folder ` +
+            `directly in your home folder) under Settings > Episodes folder > Change..., then restart the app. ` +
+            `Existing episodes stay where they are.`,
+  });
+}
+
 function startEngine() {
   const p = enginePaths();
   const env = { ...process.env, PYTHONUNBUFFERED: "1", PODCAST_STUDIO_DATA: app.getPath("userData"),
@@ -171,6 +208,7 @@ app.whenReady().then(async () => {
   }
   createWindow();
   createTray();
+  setTimeout(warnIfEpisodesInICloud, 1500);   // after the window is up, so the dialog has something to sit on
   if (!isDev) setTimeout(() => checkForUpdates(false), 8000);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else if (win) win.show(); });
 });
