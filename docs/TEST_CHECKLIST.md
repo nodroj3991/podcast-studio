@@ -20,7 +20,8 @@ a single phone video of two people also works). Tick each line.
 - [ ] Minimise the window (or close it): the tray/menu-bar icon stays; the job keeps going (reopen from the icon).
 - [ ] The computer does not sleep while it runs (leave it 5 minutes untouched).
 - [ ] A desktop notification appears when the preview is ready.
-- [ ] **Crash test**: quit the app from the tray mid-transcription, reopen, open the episode, press **Resume** → it continues from the same stage (finished stages show green, nothing restarts from zero).
+- [ ] **Crash test**: quit the app from the tray mid-transcription, reopen, open the episode: it says the step was interrupted (no progress bar), press **Resume** → it continues from the same stage (finished stages show green, nothing restarts from zero).
+- [ ] **Duplicate test**: on New episode, add a recording that an existing episode already uses → the file shows an *already used in "…"* badge.
 
 ## D. Review
 - [ ] **Preview** tab plays the low-res video: title card with your podcast name/guest → lower-third slides in → camera switches (two files) or subtle punch-ins (one file) → chapter card at a break.
@@ -33,7 +34,7 @@ a single phone video of two people also works). Tick each line.
 
 ## E. Final render & outputs
 - [ ] **Render final video** → progress → notification "finished".
-- [ ] **Outputs** tab: QA report shows all **PASS**; description text has chapters + music credit + data source.
+- [ ] **Outputs** tab: QA report shows **PASS** (or **WARN**) on every line - a WARN is a cosmetic caption note, a FAIL is something to fix; description text has chapters + music credit + data source.
 - [ ] **Open folder** shows `Output/` with every file below (replace *Title* with your episode title):
 
 | file | check |
@@ -48,9 +49,9 @@ a single phone video of two people also works). Tick each line.
 | `Title_thumbnail.jpg` | 1280×720 in your brand colours |
 | `charts/*.png`, `charts/*.mp4` | static and 3–6 s animated versions |
 | `edit_decision_list.txt` | clip list, removed time, chapters |
-| `qa_report.txt` | PASS on every line |
+| `qa_report.txt` | PASS or WARN on every line, never FAIL |
 | `Title_captions_burned_in.mp4` | only if the burned-in option was ticked |
-| `../Title_outputs.zip` | zip of the folder, next to it |
+| `../Title_outputs.zip` | zip of the documents in the folder (videos are left out), next to it |
 
 ## F. Settings, Canva, queue, errors
 - [ ] **Settings**: change the accent colour, save → next episode's title card uses it. Save a preset "Short clips".

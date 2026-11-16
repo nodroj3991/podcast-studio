@@ -47,8 +47,14 @@ for transcription; if `whisperx` is installed, the engine uses its alignment aut
 | 7 | render_preview | 854×480 ultrafast | `renders/preview.mp4` |
 | 8 | render_final | 1080p H.264 (VideoToolbox / NVENC / libx264), AAC 192k | `renders/episode_1080p.mp4` |
 | 9 | export | captions (2×42 chars, 1–7 s, phrase-aware, retimed), edited transcript .docx/.txt, chapters, description with credits, optional burned-in version | `captions/`, `Output/` |
-| 10 | qa | codec/duration/decode, −14 ±1 LUFS, true peak ≤ −1 dBTP, black frames, cuts-inside-words, caption spec + sync | `Output/qa_report.txt` |
-| 11 | package | copies everything into `Output/` and zips it | `<title>_outputs.zip` |
+| 10 | qa | codec/duration/decode, −14 ±1 LUFS, true peak ≤ −1 dBTP, black frames, cuts-inside-words (real cuts only; a camera change where two clips meet removes nothing), caption spec + sync. Cosmetic caption issues are `WARN`, not `FAIL` | `Output/qa_report.txt` |
+| 11 | package | clones (APFS; plain copy elsewhere) the deliverables into `Output/`, zips the documents (not the videos), optionally deletes `work/` render caches | `Output/`, `<title>_outputs.zip` |
+
+Before any step runs, a pre-flight check (`core/runner.py: preflight`) refuses to start - with the fix in
+plain words - if files the step needs have been evicted to iCloud by macOS (their download is requested
+on the spot) or the disk lacks room for the renders about to be written (`core/storage.py`). An engine
+that is killed mid-step (quit, crash) leaves that step marked `running`; the server resets those to
+`pending` on start and on SIGTERM so the app offers *Resume* instead of a progress bar that never moves.
 
 Render design: every clip is encoded **once** with its cut, zoom, fades and overlays baked in; the join
 is a stream-copy concat. Chapter transitions (`xfade`) re-encode only the 2 s junction. Audio is built

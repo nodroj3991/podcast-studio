@@ -20,6 +20,18 @@ from pathlib import Path
 from typing import Any
 
 from .project import Project, STAGE_LABELS, STAGES, write_json
+from . import storage as ST
+
+# project folders each stage reads, for the evicted-file check (inputs are added where the
+# original recordings are read)
+_READS = {
+    "ingest": ["media"], "transcribe": ["work"], "edit_plan": ["transcript", "edit"], "music": ["music"],
+    "charts": ["charts"], "edl": ["transcript", "edit", "music", "charts"],
+    "render_preview": ["work", "edit", "music", "charts", "media"], "render_final": ["work", "edit", "music", "charts", "media"],
+    "export": ["transcript", "edit", "work", "renders", "captions"], "qa": ["renders", "captions", "transcript", "edit", "work"],
+    "package": ["renders", "captions", "transcript", "edit", "music", "charts"],
+}
+_READS_INPUTS = {"ingest", "render_preview", "render_final"}
 
 
 class Cancelled(Exception):
@@ -107,6 +119,11 @@ def friendly_error(exc: BaseException) -> dict[str, str]:
                 "fix": "Close other apps and try again, or pick a smaller transcription model in Settings > Quality."}
     if "No space left" in text or "ENOSPC" in text:
         return {"message": "Your disk is full.", "fix": "Free up at least 10 GB and press Resume. Nothing already finished needs to be redone."}
+    if isinstance(exc, TimeoutError) or "Operation timed out" in text or "Errno 60" in text:
+        return {"message": "Reading or writing a file in the episode folder timed out. On a Mac this almost always means the "
+                           "folder is synced by iCloud Drive and macOS had moved the file to the cloud to free disk space.",
+                "fix": "Free up disk space, or move the Episodes folder out of iCloud Drive (Settings > Episodes folder), "
+                       "then press Resume - finished steps are kept."}
     if "ffmpeg" in text.lower() and "not found" in text.lower():
         return {"message": "The built-in video tool (FFmpeg) could not be started.", "fix": "Reinstall the app. If this keeps happening, send the log file from Settings > Help."}
     if "HTTP" in text or "Connection" in text or "resolve" in text.lower():
@@ -115,6 +132,49 @@ def friendly_error(exc: BaseException) -> dict[str, str]:
         return {"message": "Speaker detection could not download its model.",
                 "fix": "Open Settings > Speaker detection and check your Hugging Face token, then accept the model terms on the Hugging Face pages listed there."}
     return {"message": f"Something went wrong: {text[:300]}", "fix": "Press Resume to try the step again. If it fails twice, send the log file from Settings > Help."}
+
+
+def preflight(project: Project, todo: list[str], settings: dict[str, Any], log: logging.Logger) -> None:
+    """Fail in two seconds, with a fix, on the disk problems that otherwise surface hours later as
+    "Operation timed out" or a silently truncated render: files macOS has evicted to iCloud, and a
+    disk too full for the renders about to be written."""
+    meta = project.load()
+    roots: list[Path] = []
+    for name in todo:
+        roots += [project.root / d for d in _READS.get(name, [])]
+    if _READS_INPUTS & set(todo):
+        roots += [Path(i["path"]) for i in meta.get("inputs") or [] if i.get("path")]
+    gone = ST.evicted_files(dict.fromkeys(roots))
+    # Evicted per-clip render caches are not worth fetching back: re-encoding a clip takes
+    # seconds, downloading 20 GB of them took hours. Drop them and let the render redo those clips.
+    cache_dirs = (project.work / "render_preview", project.work / "render_final")
+    stale = [p for p, _ in gone if any(str(p).startswith(str(d) + "/") for d in cache_dirs)]
+    for p in stale:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+    if stale:
+        log.info("dropped %d evicted render-cache clip(s); they will be re-encoded", len(stale))
+    gone = [(p, sz) for p, sz in gone if p not in set(stale)]
+    if gone:
+        total = sum(sz for _, sz in gone)
+        ST.request_download([p for p, _ in gone])
+        names = ", ".join(p.name for p, _ in gone[:4]) + (f" and {len(gone) - 4} more" if len(gone) > 4 else "")
+        log.warning("%d file(s) (%s) are iCloud placeholders, download requested: %s", len(gone), ST.fmt_bytes(total), names)
+        raise UserFacingError(
+            f"{len(gone)} file(s) this step needs ({ST.fmt_bytes(total)}) were moved to iCloud by macOS and are not on "
+            f"this Mac right now: {names}.",
+            "Their download has been requested. Wait until the cloud icons on those files disappear in Finder "
+            "(or right-click them > Download Now), then press Resume. To stop this happening, free up disk space or "
+            "move the Episodes folder out of iCloud Drive (Settings > Episodes folder).")
+    free = ST.free_bytes(project.root)
+    need = ST.bytes_needed(float(meta.get("duration") or 0), todo, bool(settings.get("burn_in_captions")))
+    if free < need:
+        raise UserFacingError(
+            f"Not enough free disk space: {ST.fmt_bytes(free)} free, about {ST.fmt_bytes(need)} needed for the remaining steps.",
+            "Free up space (the work and Output folders of finished episodes are the biggest), or move the Episodes "
+            "folder to a drive with room (Settings > Episodes folder), then press Resume.")
 
 
 def run_stages(project: Project, stages: list[tuple[str, Callable[[Project, Context], None]]],
@@ -126,7 +186,11 @@ def run_stages(project: Project, stages: list[tuple[str, Callable[[Project, Cont
     if ctx.cancel_file.exists():
         ctx.cancel_file.unlink()
     result: dict[str, Any] = {"state": "done"}
+    todo = [n for n, _ in stages if not (only and n not in only) and (force or not project.is_done(n))]
     try:
+        if todo:
+            ctx.stage = todo[0]                     # a pre-flight failure is reported against the first step to run
+            preflight(project, todo, settings, log)
         for i, (name, fn) in enumerate(stages):
             ctx.stage, ctx.stage_index, ctx.stage_started = name, i, time.time()
             if only and name not in only:

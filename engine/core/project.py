@@ -134,6 +134,21 @@ class Project:
     def is_done(self, stage: str) -> bool:
         return self.stage_status(stage).get("state") == "done"
 
+    def reset_interrupted(self, note: str = "") -> list[str]:
+        """A stage still marked ``running`` belongs to an engine that died or was quit mid-stage.
+        Mark it pending (and the progress file "interrupted") so the app offers Resume instead
+        of a progress bar that never moves. Returns the stages it reset."""
+        d = self.load()
+        hit = [name for name, rec in d.get("stages", {}).items() if rec.get("state") == "running"]
+        if hit:
+            for name in hit:
+                d["stages"][name].update(state="pending", updated=time.time(), note=note or "interrupted")
+            self.save(d)
+            write_json(self.work / "progress.json", {"state": "interrupted", "stage": hit[0], "updated": time.time(),
+                                                      "message": note or "The app was closed while this step was running."})
+        (self.work / "CANCEL").unlink(missing_ok=True)
+        return hit
+
     def invalidate_from(self, stage: str) -> None:
         """Mark this stage and everything after it as pending (used after a manual edit)."""
         d = self.load()

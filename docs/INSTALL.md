@@ -39,3 +39,17 @@ a warning. This is expected; here is how to get past it once. After that the app
 macOS: drag the app to the Bin; app data is in `~/Library/Application Support/PodcastStudio`.
 Windows: Settings → Apps → Podcast Studio → Uninstall; app data is in `%APPDATA%\PodcastStudio`.
 Episodes in `Documents/Podcast Episodes` are never deleted by the app.
+
+
+## Where episodes are stored
+
+Episodes go in `Documents/Podcast Episodes` unless you change it under **Settings → Episodes folder**.
+A finished episode is 5-10 GB. On a Mac with iCloud's *Desktop & Documents Folders* syncing on, that
+folder is uploaded to iCloud, and when the disk gets full macOS moves the big files to the cloud and
+has to download them again before they can be used - the app then stops with a message naming the
+files (and asks iCloud to fetch them back). Pick a folder outside Documents, Desktop and iCloud Drive
+(for example a new folder directly in your home folder, or an external SSD) to avoid it. The app warns
+once at startup if the Episodes folder is synced.
+
+Apple Silicon Macs (M1-M4) should run the `…-mac-arm64.dmg` build. The Intel build also runs on them,
+through Rosetta, but transcribes and renders several times slower; the app tells you if that is the case.

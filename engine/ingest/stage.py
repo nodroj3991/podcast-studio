@@ -8,6 +8,7 @@ from typing import Any
 
 from ..core.project import Project, write_json, read_json
 from ..core.runner import Context, UserFacingError
+from ..core import storage as ST
 from . import media as M
 from . import transcribe as T
 from .exports import paragraphs, write_txt, write_docx
@@ -29,9 +30,13 @@ def ingest(project: Project, ctx: Context) -> None:
         info = M.probe(src)
         if not info.has_audio:
             raise UserFacingError(f"{src.name} has no audio track.", "Check you exported the recording with sound.")
-        # keep the original where it is (large), but record it; copy only if asked
-        if ctx.settings.get("copy_media_into_project"):
-            dst = project.media / src.name
+        # Keep a copy of the recording inside the project so a re-render months later still works
+        # after Downloads has been cleaned out. On APFS that copy is a clone (instant, no extra
+        # disk space), so it is always made - unless the project sits in an iCloud-synced folder,
+        # where it would only mean another multi-GB upload and one more file to be evicted. A real
+        # copy (other file systems, other volumes) happens only when the setting asks for it.
+        dst = project.media / src.name
+        if ctx.settings.get("copy_media_into_project") or (not ST.in_icloud(project.root) and ST.try_clone(src, dst)):
             if not dst.exists():
                 shutil.copy2(src, dst)
             info.path = str(dst)

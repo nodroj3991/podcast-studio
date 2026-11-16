@@ -110,11 +110,17 @@ async function newEpisode() {
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); for (const f of e.dataTransfer.files) addFile(S.pathFor(f) || f.name); });
   $("#pick").onclick = async () => { for (const p of await S.pickFiles()) addFile(p); };
   $("#go").onclick = startEpisode;
-  function addFile(p) { if (p && !newFiles.find((f) => f.path === p)) newFiles.push({ path: p, role: "auto", speaker: "" }); renderFiles(); }
+  function addFile(p) { if (p && !newFiles.find((f) => f.path === p)) newFiles.push({ path: p, role: "auto", speaker: "" }); renderFiles(); checkAlreadyUsed(); }
+}
+let alreadyUsed = {};
+async function checkAlreadyUsed() {
+  // the same recording was once turned into two episodes by accident - hours of processing each
+  try { alreadyUsed = (await api("/episodes/check", { inputs: newFiles })).already_used_in || {}; } catch (_) { alreadyUsed = {}; }
+  if ($("#files")) renderFiles();
 }
 function renderFiles() {
   $("#files").innerHTML = newFiles.map((f, i) => `
-    <div class="row"><span class="grow mono">${esc(f.path)}</span>
+    <div class="row"><span class="grow mono">${esc(f.path)}${alreadyUsed[f.path] ? ` <span class="badge warn">already used in "${esc(alreadyUsed[f.path][0])}"</span>` : ""}</span>
       <select onchange="newFiles[${i}].role=this.value"><option value="auto" ${f.role === "auto" ? "selected" : ""}>auto</option><option value="speaker" ${f.role === "speaker" ? "selected" : ""}>one speaker's camera/mic</option><option value="wide" ${f.role === "wide" ? "selected" : ""}>wide shot</option></select>
       <input type="text" style="width:160px" placeholder="who is on it?" value="${esc(f.speaker)}" onchange="newFiles[${i}].speaker=this.value">
       <button class="sm" onclick="newFiles.splice(${i},1);renderFiles()">remove</button></div>`).join("");
@@ -396,7 +402,8 @@ async function settingsPage() {
       <label class="row" style="color:var(--text)"><input type="checkbox" id="s_sa" ${settings.allow_sharealike ? "checked" : ""}> Allow CC BY-SA tracks (only if you publish episodes under CC BY-SA)</label></div>
     <div><label>Captions</label><label class="row" style="color:var(--text)"><input type="checkbox" id="s_burn" ${settings.burn_in_captions ? "checked" : ""}> Always make a burned-in caption version</label>
       <label class="row" style="color:var(--text)"><input type="checkbox" id="s_voice" ${settings.vtt_voice_tags ? "checked" : ""}> Speaker names in .vtt captions</label>
-      <label class="row" style="color:var(--text)"><input type="checkbox" id="s_hw" ${settings.use_hardware_encoder !== false ? "checked" : ""}> Use GPU video encoder when available</label></div></div></div>
+      <label class="row" style="color:var(--text)"><input type="checkbox" id="s_hw" ${settings.use_hardware_encoder !== false ? "checked" : ""}> Use GPU video encoder when available</label>
+      <label class="row" style="color:var(--text)"><input type="checkbox" id="s_clean" ${settings.clean_work_after_package ? "checked" : ""}> Delete temporary render files once an episode is packaged (frees 1-4 GB per episode; a later re-render starts from scratch)</label></div></div></div>
   <div class="card"><h2 style="margin-top:0">Keys & logins (one-time)</h2>
     <h3>Speaker detection - Hugging Face token (free)</h3>
     <ol class="steps small"><li>Go to <a href="#" onclick="S.openExternal('https://huggingface.co/join');return false">huggingface.co/join</a> and create a free account.</li>
@@ -424,6 +431,7 @@ function collectSettings() {
     transition: $("#s_tr").value, chapter_cards: $("#s_cards").value === "true", min_silence: Number($("#s_sil").value), min_chapter_s: Number($("#s_chap").value) * 60, quality: $("#s_q").value,
     filler_words: $("#s_fill").value.split(",").map((s) => s.trim()).filter(Boolean), music_mood: $("#s_mood").value, music_bed: $("#s_bed").checked, allow_sharealike: $("#s_sa").checked,
     burn_in_captions: $("#s_burn").checked, vtt_voice_tags: $("#s_voice").checked, use_hardware_encoder: $("#s_hw").checked,
+    clean_work_after_package: $("#s_clean").checked,
     hf_token: $("#k_hf").value.trim(), jamendo_client_id: $("#k_jam").value.trim(), canva_client_id: $("#k_cid").value.trim(), canva_client_secret: $("#k_csec").value.trim() };
 }
 window.saveSettings = async () => { settings = await api("/settings", collectSettings()); };
