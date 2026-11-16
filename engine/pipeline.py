@@ -31,6 +31,7 @@ def default_settings() -> dict[str, Any]:
         "charts_enabled": True, "chart_seconds": 6.0,
         "brand": {"primary": "#1F3A5F", "accent": "#E8B04B", "text": "#FFFFFF", "background": "#0F1B2D", "podcast_name": ""},
         "burn_in_captions": False, "vtt_voice_tags": False, "use_hardware_encoder": True,
+        "copy_media_into_project": False, "clean_work_after_package": False,
         "jamendo_client_id": "", "hf_token": "", "contact_email": "", "models_dir": "",
     }
 

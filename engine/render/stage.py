@@ -11,6 +11,7 @@ from typing import Any
 
 from ..core.project import Project, read_json, write_json
 from ..core.runner import Context, UserFacingError
+from ..core import storage as ST
 from ..edit.schema import load_transcript
 from ..edit.cuts import kept_ranges, words_in_edit
 from ..edit.audio import ebur128_stats
@@ -20,6 +21,7 @@ from . import timeline as TL
 from . import video as V
 from . import audio_mix as A
 from . import captions as CAP
+from . import qa_checks as QC
 
 L = logging.getLogger("engine")
 
@@ -200,16 +202,25 @@ def _yt(t: float) -> str:
 def qa(project: Project, ctx: Context) -> None:
     report: list[str] = []
     ok = True
+    warnings = 0
     final = project.renders / "episode_1080p.mp4"
     tl = read_json(project.work / "timeline.json") or {}
     target = project.renders / "preview.mp4" if not final.exists() else final
     if not target.exists():
         raise UserFacingError("No rendered video was found.", "Run the render step again.")
 
-    def check(cond: bool, good: str, bad: str):
-        nonlocal ok
-        report.append(("PASS  " if cond else "FAIL  ") + (good if cond else bad))
-        ok = ok and cond
+    def check(cond: bool, good: str, bad: str, warn: bool = False):
+        # warn=True: worth a look, not a failed episode. Every episode used to come back "QA
+        # FAILED" over a 43-character caption line, which teaches people to ignore the report.
+        nonlocal ok, warnings
+        if cond:
+            report.append("PASS  " + good)
+        elif warn:
+            report.append("WARN  " + bad)
+            warnings += 1
+        else:
+            report.append("FAIL  " + bad)
+            ok = False
 
     ctx.progress(0.1, "Checking the video file")
     probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(target)], text=True))
@@ -221,7 +232,8 @@ def qa(project: Project, ctx: Context) -> None:
     check(abs(dur - exp) < 0.6, f"Duration {dur:.1f}s matches the edit list ({exp:.1f}s)", f"Duration {dur:.1f}s differs from edit list {exp:.1f}s")
     # decode test: decode everything, count errors
     r = subprocess.run(["ffmpeg", "-hide_banner", "-v", "error", "-i", str(target), "-f", "null", "-"], capture_output=True, text=True)
-    check(r.returncode == 0 and not r.stderr.strip(), "File decodes cleanly end to end", f"Decode errors: {r.stderr[:200]}")
+    errs = QC.real_decode_errors(r.stderr)
+    check(r.returncode == 0 and not errs, "File decodes cleanly end to end", "Decode errors: " + " | ".join(errs)[:200])
 
     ctx.progress(0.4, "Measuring loudness")
     st = ebur128_stats(target)
@@ -246,19 +258,15 @@ def qa(project: Project, ctx: Context) -> None:
     ctx.progress(0.75, "Checking cuts against words")
     tr = load_transcript(project.transcript)
     edl = read_json(project.edl_json) or {}
-    mid_word = []
-    for c in edl.get("clips", []):
-        for b in (c["src_in"], c["src_out"]):
-            for w in tr.words:
-                if w.start + 0.03 < b < w.end - 0.03:
-                    mid_word.append(f"{b:.2f}s inside '{w.text}'")
-                    break
+    mid_word = QC.mid_word_cuts(edl.get("clips", []), tr.words)
     check(not mid_word, f"All {len(edl.get('clips', []))} cut points fall between words", "Cuts inside words: " + "; ".join(mid_word[:4]))
 
     ctx.progress(0.85, "Checking captions")
     cues = read_json(project.captions / "cues.json", []) or []
     problems = CAP.check_cues(cues)
-    check(cues and not problems, f"{len(cues)} captions, all within 2 lines x 42 chars and 1-7 s", "Caption problems: " + "; ".join(problems[:4]))
+    check(bool(cues), f"{len(cues)} captions written", "No captions were produced")
+    check(not problems, f"{len(cues)} captions, all within 2 lines x 42 chars and 1-7 s",
+          f"{len(problems)} caption(s) outside 2 lines x 42 chars / 1-7 s: " + "; ".join(problems[:4]), warn=True)
     last = max((c["end"] for c in cues), default=0)
     check(last <= dur + 0.2, "Captions end inside the video", f"Captions run {last - dur:.1f}s past the end of the video")
     # sync spot check: the words of 5 cues must lie inside their cue on the final timeline
@@ -275,7 +283,7 @@ def qa(project: Project, ctx: Context) -> None:
     for name in ("transcript_edited.docx", "transcript_edited.txt"):
         check((project.transcript_dir / name).exists(), f"{name} written", f"{name} missing")
 
-    report.insert(0, f"QA {'PASSED' if ok else 'FAILED'} - {target.name}")
+    report.insert(0, f"QA {'PASSED' if ok else 'FAILED'}{f' with {warnings} warning(s)' if warnings else ''} - {target.name}")
     (project.output / "qa_report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
     ctx.log.info("\n".join(report))
     project.update(qa_passed=ok)
@@ -308,10 +316,12 @@ def package(project: Project, ctx: Context) -> None:
         # the 2-3 GB renders to the cloud, and every re-read of them then has to pull the whole
         # file back down first. A retried package stage was re-copying files it had already
         # copied successfully, stalling for hours on exactly that, and failing with errno 60.
+        # On APFS the "copy" is a clone: instant, and it shares the render's blocks instead of
+        # writing another 5-6 GB on a disk that was already 90% full.
         try:
             if dst.exists() and dst.stat().st_size == src.stat().st_size and int(dst.stat().st_mtime) == int(src.stat().st_mtime):
                 return
-            shutil.copy2(src, dst)
+            ST.clone_or_copy(src, dst)
         except TimeoutError as e:
             raise UserFacingError(
                 f"Copying {src.name} to the Output folder timed out. This happens when the project folder is in iCloud "
@@ -344,4 +354,25 @@ def package(project: Project, ctx: Context) -> None:
     except Exception as e:  # noqa: BLE001
         L.warning("could not write %s (%s) - outputs are still complete in %s", zpath.name, e, out)
     meta.update(output_folder=str(out), output_zip=str(zpath), outputs=sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()))
+    if ctx.settings.get("clean_work_after_package"):
+        ctx.progress(0.9, "Deleting temporary render files")
+        meta["work_cleaned_bytes"] = clean_work(project, ctx.log)
     project.save(meta)
+
+
+def clean_work(project: Project, log=None) -> int:
+    """Delete the per-clip render caches and 48 kHz work audio (1-4 GB per episode). Everything
+    needed to re-render still exists (sources, transcript, decisions); a later re-render just
+    starts from scratch instead of reusing cached clips. Returns the bytes freed."""
+    freed = 0
+    targets = [project.work / "render_preview", project.work / "render_final"] + list(project.work.glob("*.wav"))
+    for t in targets:
+        if t.is_dir():
+            freed += sum(f.stat().st_size for f in t.rglob("*") if f.is_file())
+            shutil.rmtree(t, ignore_errors=True)
+        elif t.is_file():
+            freed += t.stat().st_size
+            t.unlink(missing_ok=True)
+    if log:
+        log.info("work folder cleaned: %s freed", ST.fmt_bytes(freed))
+    return freed

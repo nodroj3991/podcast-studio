@@ -24,7 +24,21 @@ def detect() -> dict[str, Any]:
             info.update(gpu="apple", gpu_name="Apple Silicon")
     # faster-whisper (CTranslate2) has no Metal backend: on Apple Silicon it runs on CPU with int8,
     # which is still ~3-4x faster than an Intel laptop thanks to the unified memory + NEON.
+    info["translated"] = _running_under_rosetta()
     return info
+
+
+def _running_under_rosetta() -> bool:
+    """True when this is the Intel build running through Rosetta on an Apple Silicon Mac.
+    platform.machine() then says x86_64 and everything is 4-10x slower than the native build
+    (one 80-minute transcription: 2-7 hours translated, 15 minutes native)."""
+    if platform.system() != "Darwin":
+        return False
+    try:
+        out = subprocess.check_output(["sysctl", "-n", "sysctl.proc_translated"], text=True, stderr=subprocess.DEVNULL)
+        return out.strip() == "1"
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _ram_gb() -> float:
@@ -82,13 +96,14 @@ def estimate(hw: dict[str, Any], duration_s: float, model: str | None = None, di
     model = model or choose_model(hw)
     g = hw["gpu"] if hw["gpu"] in ("cuda", "apple") else "cpu"
     t_rtf = _TRANSCRIBE_RTF.get((g, model), _TRANSCRIBE_RTF[("cpu", "small")])
+    slow = 4.0 if hw.get("translated") else 1.0    # Intel build under Rosetta (see detect())
     est = {
-        "transcribe": duration_s * t_rtf,
-        "diarize": duration_s * (0.03 if g == "cuda" else 0.35) if diarize else 0.0,
+        "transcribe": duration_s * t_rtf * slow,
+        "diarize": duration_s * (0.03 if g == "cuda" else 0.35) * slow if diarize else 0.0,
         "edit_plan": 20 + duration_s * 0.01,
         "music_charts": 60,
-        "render_preview": duration_s * _PREVIEW_RTF[g],
-        "render_final": duration_s * _RENDER_RTF[g],
+        "render_preview": duration_s * _PREVIEW_RTF[g] * slow,
+        "render_final": duration_s * _RENDER_RTF[g] * slow,
         "export_qa": 30 + duration_s * 0.05,
     }
     est["total"] = sum(est.values())

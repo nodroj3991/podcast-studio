@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, asdict
 from typing import Any
 
@@ -30,7 +30,18 @@ most other some such only own same than can could will would should may might mu
 thing things sort kind lot lots get got going go went come came say said says one two three first thought actually
 people time way year years bit much many little long still even back now ever never always sometimes maybe
 thank thanks great good nice lovely sure exactly definitely absolutely yes yep okay alright today show talk talking
+it's that's there's here's what's who's he's she's let's i'm i've i'd i'll you're you've you'd you'll we're we've
+we'd we'll they're they've they'd they'll don't doesn't didn't can't couldn't won't wouldn't shouldn't isn't aren't
+wasn't weren't haven't hasn't hadn't gonna wanna gotta kinda sorta stuff anyway obviously basically literally
 """.split())
+
+# "So, like, how do we, how do we do this?" -> "How do we do this?"
+LEAD_IN = re.compile(r"^(?:(?:so|and|but|okay|ok|right|well|now|yeah|yes|like|um|uh|erm|i mean|you know|i guess|i suppose)[,.]?\s+)+", re.I)
+FILLER = re.compile(r"\b(?:um|uh|erm)\b,?\s*|,\s*(?:you know|i mean|like|sort of|kind of),\s*", re.I)
+REPEAT = re.compile(r"\b((?:[\w']+,?\s+){0,3}[\w']+),?\s+\1\b", re.I)
+QUESTION_OPENERS = {"what", "how", "why", "when", "where", "who", "whom", "whose", "which", "do", "does", "did", "is",
+                    "are", "was", "were", "can", "could", "would", "will", "should", "have", "has", "had", "tell", "talk",
+                    "walk", "describe", "explain", "any", "anything", "in", "to", "for", "from", "on"}
 
 
 @dataclass
@@ -43,19 +54,53 @@ class Chapter:
     auto: bool = True
 
 
-def _tokens(text: str) -> list[str]:
-    toks = re.findall(r"[a-z][a-z'-]{2,}", text.lower())
+def _pairs(text: str) -> list[tuple[str, str]]:
+    """(stem, word as spoken) for every content word - the stem drives the similarity maths,
+    the spoken form is what a title may show ("culture", never the stem "cultur")."""
     out = []
-    for t in toks:
-        t = t.strip("'-")
-        if t in STOP or len(t) < 3:
+    for raw in re.findall(r"[a-z][a-z'-]{2,}", text.lower()):
+        word = raw.strip("'-")
+        if word in STOP or len(word) < 3 or re.search(r"'(s|re|ve|ll|d|m|t)$", word):
             continue
+        t = word
         for suf in ("ing", "ies", "ed", "es", "s"):
             if t.endswith(suf) and len(t) - len(suf) >= 4:
                 t = t[: -len(suf)] + ("y" if suf == "ies" else "")
                 break
-        out.append(t)
+        out.append((t, word))
     return out
+
+
+def _tokens(text: str) -> list[str]:
+    return [stem for stem, _ in _pairs(text)]
+
+
+def _cap(word: str) -> str:
+    return word[:1].upper() + word[1:]              # str.title() would turn "it's" into "It'S"
+
+
+def keyword_title(keywords: list[str], surface: dict[str, Counter] | None = None, n: int = 3) -> str:
+    """Readable form of the chapter's most distinctive stems: each shown as its most common
+    spoken form, capitalised once."""
+    words = []
+    for k in keywords[:n]:
+        forms = (surface or {}).get(k)
+        words.append(_cap(forms.most_common(1)[0][0] if forms else k))
+    return " ".join(words)
+
+
+def clean_question(text: str) -> str:
+    """Strip the spoken noise off a host question so it can stand as a chapter title."""
+    t = " ".join(text.split())
+    t = LEAD_IN.sub("", t)
+    t = FILLER.sub("", t)
+    for _ in range(4):                              # "how do we, how do we do" collapses in passes
+        t2 = REPEAT.sub(r"\1", t)
+        if t2 == t:
+            break
+        t = t2
+    t = re.sub(r"\s+([,.?!])", r"\1", re.sub(r"\s+", " ", t)).strip(" ,")
+    return (t[:1].upper() + t[1:]) if t else ""
 
 
 def _cos(a: Counter, b: Counter) -> float:
@@ -117,6 +162,10 @@ def find_chapters(tr: Transcript, min_chapter_s: float = 240.0, sensitivity: flo
     df = Counter()
     for v in vecs:
         df.update(set(v))
+    surface: dict[str, Counter] = defaultdict(Counter)
+    for a, b in blocks:
+        for stem, word in _pairs(" ".join(w.text for w in words[a:b])):
+            surface[stem][word] += 1
     questions = host_questions(tr, host_label)
     chapters: list[Chapter] = []
     for ci, bi in enumerate(chosen):
@@ -131,7 +180,7 @@ def find_chapters(tr: Transcript, min_chapter_s: float = 240.0, sensitivity: flo
         q = min((q for q in questions if abs(q["start"] - t0) <= 20.0), key=lambda q: abs(q["start"] - t0), default=None)
         if q and ci > 0:
             wi, t0 = q["word_index"], q["start"]
-        title = (q["title"] if q else None) or question_title(tr, wi, host_label) or " ".join(k.title() for k in keywords[:3]) or f"Part {ci + 1}"
+        title = (q["title"] if q else None) or question_title(tr, wi, host_label) or keyword_title(keywords, surface) or f"Part {ci + 1}"
         if ci == 0:
             title = "Introduction"
             wi, t0 = 0, words[0].start
@@ -178,9 +227,12 @@ def question_title(tr: Transcript, word_index: int, host_label: str | None, max_
         return None
     if host_label and words[word_index].speaker != host_label:
         return None
-    text = re.sub(r"^(so|and|but|okay|right|well|now|yeah)[, ]+", "", text, flags=re.I).strip()
-    text = text[0].upper() + text[1:]
+    text = clean_question(text)
     toks = text.split()
+    # a fragment ("That you invited?") or a one-word "Really?" is not a title; the keyword
+    # fallback reads better than a question that does not open like one
+    if len(toks) < 4 or toks[0].lower().strip(",") not in QUESTION_OPENERS:
+        return None
     if len(toks) > max_words:
         text = " ".join(toks[:max_words]).rstrip(",") + "…"
     return text

@@ -80,6 +80,23 @@ function warnIfEpisodesInICloud() {
   });
 }
 
+function warnIfTranslated() {
+  // The Intel build runs on an Apple Silicon Mac through Rosetta without complaint - just 4-10x
+  // slower (one 80-minute transcription: 2-7 hours translated, 15 minutes native). The updater
+  // can't fix it either: under Rosetta process.arch is "x64", so it keeps offering Intel builds.
+  if (process.platform !== "darwin" || !app.runningUnderARM64Translation) return;
+  const flagFile = path.join(app.getPath("userData"), "rosetta-warning-shown.txt");
+  try { if (fs.readFileSync(flagFile, "utf-8").trim() === app.getVersion()) return; } catch { /* not shown for this version yet */ }
+  try { fs.writeFileSync(flagFile, app.getVersion()); } catch { /* best effort */ }
+  dialog.showMessageBox({
+    type: "warning", buttons: ["Open downloads page", "Later"], defaultId: 0, title: "Intel version on an Apple Silicon Mac",
+    message: "This is the Intel version of Podcast Studio, running through Rosetta.",
+    detail: "It works, but transcribing and rendering take several times longer than with the Apple Silicon version " +
+            "(PodcastStudio-<version>-mac-arm64.dmg). Download that one from the releases page and install it over this " +
+            "copy; your episodes, settings and the downloaded model are kept.",
+  }).then((r) => { if (r.response === 0) shell.openExternal("https://github.com/nodroj3991/podcast-studio/releases/latest"); });
+}
+
 function startEngine() {
   const p = enginePaths();
   const env = { ...process.env, PYTHONUNBUFFERED: "1", PODCAST_STUDIO_DATA: app.getPath("userData"),
@@ -209,6 +226,7 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   setTimeout(warnIfEpisodesInICloud, 1500);   // after the window is up, so the dialog has something to sit on
+  setTimeout(warnIfTranslated, 2500);
   if (!isDev) setTimeout(() => checkForUpdates(false), 8000);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else if (win) win.show(); });
 });

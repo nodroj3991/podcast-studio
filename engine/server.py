@@ -5,6 +5,7 @@
     GET  /api/presets       POST /api/presets   named presets {name: settings-overrides}
     GET  /api/episodes                        list projects in the episodes folder
     POST /api/episodes                        {title, guest:{name,title,institution}, inputs:[{path,role,speaker}], preset, settings}
+    POST /api/episodes/check                  {inputs:[{path}]} -> {already_used_in: {path: [episode titles]}}
     GET  /api/episodes/<id>                   project.json + estimate + progress
     POST /api/episodes/<id>/run               {until?, only?, force?, from?}  -> queued
     POST /api/episodes/<id>/cancel
@@ -32,6 +33,7 @@ import os
 import platform
 import queue
 import shutil
+import signal
 import threading
 import time
 import traceback
@@ -76,6 +78,17 @@ class State:
         self.presets: dict[str, Any] = read_json(self.presets_file, {}) or {}
         self.episodes_dir = episodes_dir or Path(self.settings.get("episodes_dir") or (Path.home() / "Podcast Episodes"))
         self.episodes_dir.mkdir(parents=True, exist_ok=True)
+        # An engine that was killed mid-stage (quit from the tray, crash, power cut) leaves that
+        # stage marked "running" forever; the UI then shows a progress bar that never moves and
+        # keeps reloading. Put those episodes back to "pending" so they offer Resume.
+        for d in self.episodes_dir.iterdir():
+            try:
+                if (d / "project.json").exists():
+                    hit = Project(d).reset_interrupted()
+                    if hit:
+                        print(f"episode {d.name}: step {hit[0]} was interrupted last time - marked pending", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"could not check {d.name}: {e}", flush=True)
         self.jobs: "queue.Queue[dict[str, Any]]" = queue.Queue()
         self.current: dict[str, Any] | None = None
         self.queued: list[dict[str, Any]] = []
@@ -139,14 +152,23 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # ---------------------------------------------------------------- helpers
+    # The UI polls progress every second and drops requests freely (window closed, tab changed,
+    # video seeked). Writing to a socket the client has already closed raises BrokenPipeError /
+    # ConnectionResetError; that is not an error worth a traceback - and trying to send a 500
+    # response about it raised a second one. Every write path swallows the pair.
+    _GONE = (BrokenPipeError, ConnectionResetError)
+
     def _json(self, data: Any, code: int = 200) -> None:
         body = json.dumps(data, ensure_ascii=False).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+        except self._GONE:
+            pass
 
     def _body(self) -> dict[str, Any]:
         n = int(self.headers.get("Content-Length") or 0)
@@ -170,15 +192,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        with path.open("rb") as f:
-            f.seek(start)
-            remaining = end - start + 1
-            while remaining > 0:
-                chunk = f.read(min(1 << 20, remaining))
-                if not chunk:
-                    break
-                self.wfile.write(chunk); remaining -= len(chunk)
+        try:
+            self.end_headers()
+            with path.open("rb") as f:
+                f.seek(start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    chunk = f.read(min(1 << 20, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk); remaining -= len(chunk)
+        except self._GONE:
+            pass                                   # the video player stopped reading
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -189,16 +214,16 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- routing
     def do_GET(self):
-        try:
-            self._route("GET")
-        except FileNotFoundError as e:
-            self._json({"error": f"episode not found: {e}"}, 404)
-        except Exception as e:  # noqa: BLE001
-            self._json({"error": str(e), "trace": traceback.format_exc()}, 500)
+        self._handle("GET")
 
     def do_POST(self):
+        self._handle("POST")
+
+    def _handle(self, method: str) -> None:
         try:
-            self._route("POST")
+            self._route(method)
+        except self._GONE:
+            pass
         except FileNotFoundError as e:
             self._json({"error": f"episode not found: {e}"}, 404)
         except Exception as e:  # noqa: BLE001
@@ -272,6 +297,8 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST":
                 return self._json(self._new_episode(self._body()))
             return self._json(self._list_episodes())
+        if a == ["episodes", "check"] and method == "POST":
+            return self._json({"already_used_in": self._already_used(self._body().get("inputs") or [])})
         if len(a) >= 2 and a[0] == "episodes":
             eid = a[1]
             p = S.project(eid)
@@ -413,6 +440,27 @@ class Handler(BaseHTTPRequestHandler):
                             "qa_passed": m.get("qa_passed"), "duration": m.get("duration")})
         return out
 
+    def _already_used(self, inputs: list[dict[str, Any]]) -> dict[str, list[str]]:
+        """{input path: [titles of episodes already made from that recording]} - the same Zoom
+        file was accidentally turned into two episodes (hours of work each) before this existed."""
+        wanted = {}
+        for i in inputs:
+            try:
+                wanted[str(Path(i["path"]).resolve())] = i["path"]
+            except (KeyError, OSError):
+                continue
+        hits: dict[str, list[str]] = {}
+        for d in STATE.episodes_dir.iterdir():
+            m = read_json(d / "project.json", {}) or {}
+            for inp in m.get("inputs") or []:
+                try:
+                    key = str(Path(inp.get("path", "")).resolve())
+                except OSError:
+                    continue
+                if key in wanted:
+                    hits.setdefault(wanted[key], []).append(m.get("title") or d.name)
+        return hits
+
     def _new_episode(self, b: dict[str, Any]) -> dict[str, Any]:
         S = STATE
         guest = b.get("guest") or {}
@@ -444,6 +492,21 @@ def serve(port: int = 5890, episodes_dir: Path | None = None, open_review: Path 
     STATE.settings["port"] = port
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"Podcast Studio engine listening on http://127.0.0.1:{port}  (episodes: {STATE.episodes_dir})", flush=True)
+
+    def _on_terminate(signum, frame):
+        # The desktop shell kills us with SIGTERM on quit. Leave the running episode resumable
+        # instead of frozen at "running" (see State.__init__), then go.
+        cur = STATE.current
+        if cur:
+            try:
+                STATE.project(cur["id"]).reset_interrupted("The app was quit while this step was running.")
+            except Exception:  # noqa: BLE001
+                pass
+        os._exit(0)
+    try:
+        signal.signal(signal.SIGTERM, _on_terminate)
+    except (ValueError, OSError, AttributeError):
+        pass                                       # not the main thread / no SIGTERM on this platform
     if open_review:
         webbrowser.open(f"http://127.0.0.1:{port}/#/episode/{Path(open_review).name}/review")
     try:
