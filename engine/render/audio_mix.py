@@ -38,6 +38,16 @@ def full_mix(sources: list[dict[str, Any]], out: Path, log=None) -> Path:
     tracks = [s for s in sources if s.get("role", "auto") in ("speaker", "auto")] or sources
     if out.exists() and M.is_valid(out, min_duration=1.0):
         return out
+    # The recordings are only needed again if this mix has to be rebuilt (the first render, or a
+    # re-run after the work files were cleaned up). If someone has deleted them to free disk space,
+    # ffmpeg just says "exit status 254" - say what is actually wrong instead.
+    missing = [Path(s["path"]) for s in tracks if not Path(s["path"]).exists()]
+    if missing:
+        from ..core.runner import UserFacingError
+        raise UserFacingError(
+            f"The original recording ({missing[0].name}) is no longer on this computer, and this step needs it to rebuild the audio.",
+            "Put the recording back where it was (check the Trash, or download it again from Zoom) and press Resume. "
+            "If the episode already finished once, the finished video, captions and transcript are still in its Output folder.")
     mix_down([Path(s["path"]) for s in tracks], [float(s.get("offset", 0.0)) for s in tracks], out, sr=SR)
     return out
 
